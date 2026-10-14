@@ -61,7 +61,8 @@ export function registrarRutasProductos(app) {
         let esBloqueado = false;
 
         try {
-          resultadoPlaywright = await renderizarConPlaywright(url);
+          const esSpa = /eneba|liverpool|mercadolibre/i.test(url);
+          resultadoPlaywright = await renderizarConPlaywright(url, { timeoutMs: esSpa ? 35000 : 25000 });
           if (
             !resultadoPlaywright ||
             !resultadoPlaywright.urlFinal ||
@@ -71,7 +72,8 @@ export function registrarRutasProductos(app) {
           ) {
             esBloqueado = true;
           }
-        } catch {
+        } catch (errPlaywright) {
+          console.warn("[Inspector] Falló Playwright o excedió timeout, recurriendo a HTML estático:", errPlaywright.message);
           esBloqueado = true;
         }
 
