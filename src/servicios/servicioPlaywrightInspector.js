@@ -304,13 +304,20 @@ export async function renderizarConPlaywright(urlObjetivo, { timeoutMs = 25000 }
 
     // En tiendas SPA como Eneba o Liverpool, esperar a que la red esté tranquila y carguen los precios por GraphQL
     if (/eneba|liverpool/i.test(urlValida.hostname)) {
-      await pagina.waitForLoadState("networkidle", { timeout: 6000 }).catch(() => {});
-      // Intentar cerrar el banner de cookies si está presente para destapar el contenido
-      const botonCookies = pagina.locator('button:has-text("Aceptar todo"), button:has-text("Accept all"), button:has-text("Aceptar")').first();
-      if (await botonCookies.count() > 0 && await botonCookies.isVisible().catch(() => false)) {
-        await botonCookies.click().catch(() => {});
-        await pagina.waitForTimeout(800);
-      }
+      // Esperar a que la API de Eneba devuelva los precios
+      await pagina.waitForResponse(
+        (res) => res.url().includes("graphql") && res.status() === 200,
+        { timeout: 7000 }
+      ).catch(() => {});
+
+      // Esperar 2.5s adicionales para que React inserte los precios en el DOM
+      await pagina.waitForTimeout(2500);
+
+      // Eliminar el banner de cookies y cualquier backdrop oscuro directamente del DOM para que el usuario pueda interactuar limpiamente
+      await pagina.evaluate(() => {
+        const banners = document.querySelectorAll('[class*="cookie" i], [id*="cookie" i], [aria-label*="cookie" i]');
+        banners.forEach((b) => b.remove());
+      }).catch(() => {});
     }
 
     // Esperar a que los elementos del producto (precio, imagen, título) estén hidratados
@@ -318,6 +325,9 @@ export async function renderizarConPlaywright(urlObjetivo, { timeoutMs = 25000 }
       '#productTitle, [id*="price"], .ui-pdp-title, h1, [data-testid*="price"], [class*="price-"]',
       { timeout: 4000 }
     ).catch(() => {});
+
+    // Una última pausa de 500ms para asegurar que cualquier animación de render termine
+    await pagina.waitForTimeout(500);
 
     const titulo = await pagina.title();
     const htmlRenderizado = await pagina.content();
