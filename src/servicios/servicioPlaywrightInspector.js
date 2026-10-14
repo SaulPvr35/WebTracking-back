@@ -304,16 +304,23 @@ export async function renderizarConPlaywright(urlObjetivo, { timeoutMs = 25000 }
 
     // En tiendas SPA como Eneba o Liverpool, esperar a que la red esté tranquila y carguen los precios por GraphQL
     if (/eneba|liverpool/i.test(urlValida.hostname)) {
-      // Esperar a que la API de Eneba devuelva los precios
+      // Hacer click en el botón de cookies si está presente
+      const botonCookies = pagina.locator('button:has-text("Aceptar todo"), button:has-text("Accept all"), button:has-text("Aceptar")').first();
+      if (await botonCookies.count() > 0 && await botonCookies.isVisible().catch(() => false)) {
+        await botonCookies.click({ force: true }).catch(() => {});
+        await pagina.waitForTimeout(1500);
+      }
+
+      // Esperar a que la API GraphQL devuelva las ofertas y precios
       await pagina.waitForResponse(
         (res) => res.url().includes("graphql") && res.status() === 200,
-        { timeout: 7000 }
+        { timeout: 8000 }
       ).catch(() => {});
 
-      // Esperar 2.5s adicionales para que React inserte los precios en el DOM
-      await pagina.waitForTimeout(2500);
+      // Esperar a que React renderice los precios y remueva los skeletons
+      await pagina.waitForTimeout(3000);
 
-      // Eliminar el banner de cookies y cualquier backdrop oscuro directamente del DOM para que el usuario pueda interactuar limpiamente
+      // Eliminar el banner de cookies y cualquier backdrop oscuro directamente del DOM
       await pagina.evaluate(() => {
         const banners = document.querySelectorAll('[class*="cookie" i], [id*="cookie" i], [aria-label*="cookie" i]');
         banners.forEach((b) => b.remove());
