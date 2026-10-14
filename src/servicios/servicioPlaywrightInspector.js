@@ -1,0 +1,308 @@
+import { chromium } from "playwright";
+import { normalizarUrl, validarDestino } from "../utilidades/normalizarUrl.js";
+
+let navegadorSingleton = null;
+
+async function obtenerNavegador() {
+  if (!navegadorSingleton || !navegadorSingleton.isConnected()) {
+    navegadorSingleton = await chromium.launch({
+      headless: true,
+      args: [
+        "--no-sandbox",
+        "--disable-setuid-sandbox",
+        "--disable-dev-shm-usage",
+        "--disable-accelerated-2d-canvas",
+        "--disable-gpu",
+      ],
+    });
+  }
+  return navegadorSingleton;
+}
+
+/**
+ * Script inyectado en el HTML para permitir selección interactiva F12 visual.
+ * Al hacer click o mover el mouse en el iframe, envía mensajes al padre con datos del elemento y selector CSS.
+ */
+function generarScriptInspector(urlOriginal) {
+  return `
+<script id="__inspector_tienda_script__">
+(function() {
+  if (window.__INSPECTOR_INICIALIZADO__) return;
+  window.__INSPECTOR_INICIALIZADO__ = true;
+
+  var elementoActivo = null;
+  var estiloResaltado = document.createElement("style");
+  estiloResaltado.innerHTML = \`
+    .__inspector_hover__ {
+      outline: 2px dashed #3b82f6 !important;
+      outline-offset: -1px !important;
+      background-color: rgba(59, 130, 246, 0.12) !important;
+      cursor: crosshair !important;
+    }
+    .__inspector_seleccionado__ {
+      outline: 2px solid #10b981 !important;
+      outline-offset: -1px !important;
+      background-color: rgba(16, 185, 129, 0.2) !important;
+    }
+  \`;
+  document.head.appendChild(estiloResaltado);
+
+  function generarSelectorCSS(el) {
+    if (!el || el.nodeType !== Node.ELEMENT_NODE) return "";
+    if (el.id) {
+      return "#" + CSS.escape(el.id);
+    }
+    
+    // Probar atributos de prueba o data-testid comunes
+    var atributosTest = ["data-testid", "data-qa", "itemprop", "data-fs-element", "data-component"];
+    for (var i = 0; i < atributosTest.length; i++) {
+      var attr = atributosTest[i];
+      var val = el.getAttribute(attr);
+      if (val) {
+        return el.tagName.toLowerCase() + "[" + attr + '="' + CSS.escape(val) + '"]';
+      }
+    }
+
+    // Probar clases identificadoras
+    if (el.classList && el.classList.length > 0) {
+      var clasesUtiles = Array.from(el.classList).filter(function(c) {
+        return !c.startsWith("__inspector_") && !c.includes("hover") && !c.includes("active");
+      });
+      if (clasesUtiles.length > 0) {
+        var selectorClase = el.tagName.toLowerCase() + "." + clasesUtiles.map(function(c) { return CSS.escape(c); }).join(".");
+        if (document.querySelectorAll(selectorClase).length <= 3) {
+          return selectorClase;
+        }
+      }
+    }
+
+    // Ruta jerárquica con nth-of-type
+    var camino = [];
+    var actual = el;
+    while (actual && actual.nodeType === Node.ELEMENT_NODE && actual !== document.body && actual !== document.documentElement) {
+      var tag = actual.tagName.toLowerCase();
+      var id = actual.id ? "#" + CSS.escape(actual.id) : "";
+      if (id) {
+        camino.unshift(tag + id);
+        break; // Detener en ID
+      } else {
+        var hermanosMismoTag = Array.from(actual.parentNode ? actual.parentNode.children : []).filter(function(h) {
+          return h.tagName.toLowerCase() === tag;
+        });
+        if (hermanosMismoTag.length > 1) {
+          var indice = hermanosMismoTag.indexOf(actual) + 1;
+          camino.unshift(tag + ":nth-of-type(" + indice + ")");
+        } else {
+          camino.unshift(tag);
+        }
+      }
+      actual = actual.parentNode;
+    }
+    return camino.join(" > ");
+  }
+
+  function serializarElemento(el) {
+    if (!el) return null;
+    var rect = el.getBoundingClientRect();
+    var atributos = {};
+    for (var i = 0; i < el.attributes.length; i++) {
+      var a = el.attributes[i];
+      atributos[a.name] = a.value;
+    }
+    return {
+      tag: el.tagName.toLowerCase(),
+      selector: generarSelectorCSS(el),
+      texto: (el.innerText || el.textContent || "").trim().slice(0, 300),
+      valorAttrSrc: el.getAttribute("src") || el.getAttribute("data-src") || el.getAttribute("data-zoom-image") || null,
+      atributos: atributos,
+      dimensiones: {
+        ancho: Math.round(rect.width),
+        alto: Math.round(rect.height),
+      }
+    };
+  }
+
+  document.addEventListener("mouseover", function(e) {
+    if (e.target.id === "__inspector_tienda_script__") return;
+    if (elementoActivo && elementoActivo !== e.target) {
+      elementoActivo.classList.remove("__inspector_hover__");
+    }
+    elementoActivo = e.target;
+    elementoActivo.classList.add("__inspector_hover__");
+
+    window.parent.postMessage({
+      tipo: "INSPECTOR_HOVER",
+      elemento: serializarElemento(elementoActivo)
+    }, "*");
+  }, true);
+
+  document.addEventListener("mouseout", function(e) {
+    if (e.target) {
+      e.target.classList.remove("__inspector_hover__");
+    }
+  }, true);
+
+  function procesarSeleccion(e) {
+    e.preventDefault();
+    e.stopPropagation();
+
+    var prevSeleccionado = document.querySelector(".__inspector_seleccionado__");
+    if (prevSeleccionado) {
+      prevSeleccionado.classList.remove("__inspector_seleccionado__");
+    }
+    if (e.target) {
+      e.target.classList.add("__inspector_seleccionado__");
+    }
+
+    var datosElemento = serializarElemento(e.target);
+    window.parent.postMessage({
+      tipo: "INSPECTOR_SELECCION",
+      elemento: datosElemento
+    }, "*");
+  }
+
+  document.addEventListener("click", procesarSeleccion, true);
+  document.addEventListener("mousedown", function(e) {
+    // Si es click izquierdo, capturar de inmediato
+    if (e.button === 0) {
+      procesarSeleccion(e);
+    }
+  }, true);
+
+  // Informar que el inspector cargó
+  window.parent.postMessage({
+    tipo: "INSPECTOR_LISTO",
+    url: "${urlOriginal}"
+  }, "*");
+})();
+</script>
+  `;
+}
+
+/**
+ * Prepara el HTML renderizado para ser cargado en un iframe interactivo:
+ * - Inyecta etiqueta <base href="..."> para que imágenes y estilos relativos carguen
+ * - Inyecta el script interactivo F12 para selección y selectores
+ */
+/**
+ * Prepara el HTML renderizado para ser pintado fielmente en el iframe interactivo:
+ * - Despoja todos los scripts ejecutables de la tienda (WAF, captchas, métricas, redirecciones)
+ * - Conserva 100% de los estilos CSS (<style>, <link rel="stylesheet">), imágenes, fuentes y diseño visual
+ * - Inyecta etiqueta <base href="..."> para que todas las hojas de estilo y recursos carguen desde el origen
+ * - Inyecta únicamente el script del inspector interactivo (crosshair, selectores CSS, postMessage)
+ */
+export function inyectarInspectorEnHtml(htmlOriginal, urlOriginal) {
+  let html = htmlOriginal || "";
+
+  // 1. Eliminar absolutamente TODOS los scripts de la tienda (<script>...</script> y <script src="...">)
+  // De esta manera, el navegador NO ejecutará retos de AWS WAF, recaptcha, cloudflare ni tracking,
+  // pero el HTML se "pinta" idéntico a la tienda porque todo el CSS, layouts, imágenes y fuentes quedan intactos.
+  html = html.replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, "");
+
+  // 2. Inyectar <base href="..."> en el <head> para resolver estilos e imágenes relativas
+  const tagBase = `<base href="${urlOriginal}">`;
+  if (/<head[^>]*>/i.test(html)) {
+    html = html.replace(/<head[^>]*>/i, (coincidencia) => `${coincidencia}\n${tagBase}\n`);
+  } else {
+    html = `${tagBase}\n${html}`;
+  }
+
+  // 3. Inyectar únicamente nuestro script de inspector interactivo
+  const scriptInspector = generarScriptInspector(urlOriginal);
+  if (/<\/body>/i.test(html)) {
+    html = html.replace(/<\/body>/i, `\n${scriptInspector}\n</body>`);
+  } else {
+    html += `\n${scriptInspector}`;
+  }
+
+  return html;
+}
+
+/**
+ * Ejecuta la URL en un navegador Chromium headless (Playwright) para obtener el DOM totalmente renderizado.
+ */
+export async function renderizarConPlaywright(urlObjetivo, { timeoutMs = 25000 } = {}) {
+  const urlValida = normalizarUrl(urlObjetivo);
+  await validarDestino(urlValida);
+
+  const navegador = await obtenerNavegador();
+  const contexto = await navegador.newContext({
+    userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
+    viewport: { width: 1366, height: 768 },
+    deviceScaleFactor: 1,
+    locale: "es-MX",
+    timezoneId: "America/Mexico_City",
+    permissions: ["geolocation"],
+    extraHTTPHeaders: {
+      "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+      "accept-language": "es-MX,es;q=0.9,en-US;q=0.8,en;q=0.7",
+      "sec-ch-ua": '"Chromium";v="130", "Google Chrome";v="130", "Not?A_Brand";v="99"',
+      "sec-ch-ua-mobile": "?0",
+      "sec-ch-ua-platform": '"Windows"',
+      "upgrade-insecure-requests": "1",
+    },
+  });
+
+  const pagina = await contexto.newPage();
+
+  // Stealth script para eliminar huellas de automatización que Amazon detecta
+  await pagina.addInitScript(() => {
+    // 1. Ocultar navigator.webdriver
+    Object.defineProperty(navigator, "webdriver", {
+      get: () => undefined,
+    });
+    // 2. Simular window.chrome
+    window.chrome = {
+      runtime: {},
+      loadTimes: function() {},
+      csi: function() {},
+      app: {},
+    };
+    // 3. Simular plugins y languages reales
+    Object.defineProperty(navigator, "languages", {
+      get: () => ["es-MX", "es", "en-US", "en"],
+    });
+    Object.defineProperty(navigator, "plugins", {
+      get: () => [1, 2, 3, 4, 5],
+    });
+  });
+
+  try {
+    await pagina.goto(urlValida.href, {
+      waitUntil: "domcontentloaded",
+      timeout: timeoutMs,
+    });
+
+    // Esperar un momento breve para verificar si Amazon o la tienda mostraron la pantalla de "Continuar a compras"
+    await pagina.waitForTimeout(1500);
+
+    // Si Amazon muestra el botón "Continuar a compras" (botón de verificación simple)
+    const botonContinuarAmazon = pagina.locator(
+      'button:has-text("Continuar a Compras"), button:has-text("Continuar"), a:has-text("Continuar a Compras"), .a-button-text:has-text("Continuar")'
+    ).first();
+
+    if (await botonContinuarAmazon.count() > 0 && await botonContinuarAmazon.isVisible()) {
+      await botonContinuarAmazon.click().catch(() => {});
+      // Esperar navegación al producto real tras el clic
+      await pagina.waitForLoadState("domcontentloaded").catch(() => {});
+      await pagina.waitForTimeout(2000);
+    }
+
+    // Esperar a que los elementos del producto (precio, imagen, título) estén hidratados
+    await pagina.waitForSelector(
+      '#productTitle, [id*="price"], .ui-pdp-title, h1, [data-testid*="price"]',
+      { timeout: 4000 }
+    ).catch(() => {});
+
+    const titulo = await pagina.title();
+    const htmlRenderizado = await pagina.content();
+
+    return {
+      urlFinal: pagina.url(),
+      titulo,
+      htmlRenderizado,
+    };
+  } finally {
+    await contexto.close().catch(() => {});
+  }
+}

@@ -1,0 +1,26 @@
+{
+  "name": "hacerweb-tracking-backend",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node --watch src/servidor.js",
+    "start": "node src/servidor.js",
+    "test": "node --test",
+    "prisma:generate": "prisma generate",
+    "prisma:migrate": "prisma migrate dev --name inicial",
+    "respaldo": "node src/utilidades/respaldoBaseDatos.js"
+  },
+  "dependencies": {
+    "@prisma/client": "^6.17.1",
+    "cheerio": "^1.1.2",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^5.1.0",
+    "playwright": "^1.64.1",
+    "zod": "^4.1.12"
+  },
+  "devDependencies": {
+    "prisma": "^6.17.1"
+  }
+}

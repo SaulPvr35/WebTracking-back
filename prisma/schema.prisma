@@ -1,0 +1,106 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Usuario {
+  id                String       @id @default(cuid())
+  email             String       @unique
+  nombre            String
+  passwordHash      String
+  fechaCreacion     DateTime     @default(now())
+  fechaActualizacion DateTime    @updatedAt
+  productos         Producto[]
+}
+
+model Producto {
+  id                  String              @id @default(cuid())
+  usuarioId           String?
+  urlOriginal         String
+  urlCanonica         String
+  dominio             String
+  nombre              String?
+  descripcion         String?
+  imagenUrl           String?
+  precioActual        Float?
+  precioOriginal      Float?
+  precioAnterior      Float?
+  ahorro              Float?
+  porcentajeDescuento Float?
+  tieneDescuento      Boolean             @default(false)
+  etiquetaPromocion   String?
+  vigenciaPromocion   String?
+  moneda              String?
+  disponibilidad      String?
+  valoracion          Float?
+  cantidadValoraciones Int?
+  fuenteCampos        String
+  confianzaCampos     String
+  fechaCreacion       DateTime            @default(now())
+  fechaActualizacion   DateTime            @updatedAt
+  usuario             Usuario?            @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+  seguimientos        Seguimiento[]
+  historialPrecios    HistorialPrecio[]
+
+  @@index([usuarioId])
+}
+
+model Seguimiento {
+  id                    String             @id @default(cuid())
+  productoId            String
+  activo                Boolean            @default(true)
+  intervaloMinutos      Int                @default(1440)
+  ultimaConsulta        DateTime?
+  proximaConsulta       DateTime?
+  ultimoEstado          String             @default("pendiente")
+  intentosTotales       Int                @default(0)
+  consultasExitosas     Int                @default(0)
+  consultasFallidas     Int                @default(0)
+  tiempoUltimaConsultaMs Int?
+  fechaCreacion         DateTime           @default(now())
+  fechaActualizacion     DateTime           @updatedAt
+  producto              Producto           @relation(fields: [productoId], references: [id], onDelete: Cascade)
+  historialPrecios      HistorialPrecio[]
+  registrosConsultas    RegistroConsulta[]
+
+  @@index([productoId])
+  @@index([activo, proximaConsulta])
+}
+
+model HistorialPrecio {
+  id                  String       @id @default(cuid())
+  productoId          String
+  seguimientoId       String?
+  precio              Float?
+  precioOriginal      Float?
+  ahorro              Float?
+  porcentajeDescuento Float?
+  tieneDescuento      Boolean      @default(false)
+  etiquetaPromocion   String?
+  moneda              String?
+  disponibilidad      String?
+  fechaRegistro       DateTime     @default(now())
+  producto            Producto     @relation(fields: [productoId], references: [id], onDelete: Cascade)
+  seguimiento         Seguimiento? @relation(fields: [seguimientoId], references: [id], onDelete: SetNull)
+
+  @@index([productoId, fechaRegistro])
+}
+
+model RegistroConsulta {
+  id               String      @id @default(cuid())
+  seguimientoId    String
+  fechaInicio      DateTime
+  fechaFin         DateTime?
+  duracionMs       Int?
+  resultado        String
+  camposEncontrados String?
+  mensajeError     String?
+  codigoError      String?
+  seguimiento      Seguimiento @relation(fields: [seguimientoId], references: [id], onDelete: Cascade)
+
+  @@index([seguimientoId, fechaInicio])
+}
