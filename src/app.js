@@ -13,20 +13,31 @@ const origenesPermitidos = (process.env.ORIGEN_FRONTEND ?? "http://localhost:517
 
 app.use(cors({
   origin: (origin, callback) => {
-    // Permitir solicitudes sin origen (como clientes de API, curl o apps móviles)
+    // Permitir solicitudes sin origen (curl, Postman, SSR)
     if (!origin) return callback(null, true);
-    // Permitir orígenes configurados o cualquier puerto local en desarrollo
-    if (
-      origenesPermitidos.includes(origin) ||
-      /^http:\/\/localhost:\d+$/.test(origin) ||
-      /^http:\/\/127\.0\.0\.1:\d+$/.test(origin)
-    ) {
+    
+    // Permitir si coincide con la lista ORIGEN_FRONTEND
+    if (origenesPermitidos.includes(origin) || origenesPermitidos.includes("*")) {
       return callback(null, true);
     }
-    return callback(new Error("No permitido por CORS"));
+
+    // Permitir cualquier dominio de Vercel del proyecto (producción o previews)
+    if (/^https:\/\/.*\.vercel\.app$/.test(origin)) {
+      return callback(null, true);
+    }
+
+    // Permitir puertos locales
+    if (/^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)) {
+      return callback(null, true);
+    }
+
+    return callback(new Error(`Bloqueado por CORS: origen no autorizado (${origin})`));
   },
   credentials: true,
+  methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization"],
 }));
+app.options("*", cors());
 app.use(express.json({ limit: "10mb" }));
 registrarRutasAuth(app);
 registrarRutasProductos(app);
