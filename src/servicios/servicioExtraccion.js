@@ -93,7 +93,30 @@ export async function descargarHtml(urlInicial) {
 
 export async function extraerProducto(urlOriginal, selectoresPersonalizados = null) {
   const inicio = performance.now();
-  const descargado = await descargarHtml(urlOriginal);
+  let descargado;
+
+  try {
+    descargado = await descargarHtml(urlOriginal);
+  } catch (errorDescarga) {
+    // Si la tienda bloquea la IP del datacenter (Render/AWS) con 403/401 o reto anti-bot,
+    // intentamos automáticamente con Playwright headless y perfiles de navegador reales
+    if (errorDescarga.message.includes("protección temporal") || errorDescarga.message.includes("403") || errorDescarga.message.includes("401")) {
+      try {
+        const { renderizarConPlaywright } = await import("./servicioPlaywrightInspector.js");
+        const resPw = await renderizarConPlaywright(urlOriginal, { timeoutMs: 25000 });
+        descargado = {
+          html: resPw.htmlRenderizado,
+          urlFinal: new URL(resPw.urlFinal),
+          codigoHttp: 200,
+        };
+      } catch (errorPw) {
+        throw errorDescarga;
+      }
+    } else {
+      throw errorDescarga;
+    }
+  }
+
   const $ = cheerio.load(descargado.html);
   const resultado = crearResultado();
 
