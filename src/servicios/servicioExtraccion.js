@@ -22,6 +22,7 @@ export async function descargarHtml(urlInicial) {
     const temporizador = setTimeout(() => controlador.abort(), TIEMPO_LIMITE_MS);
     let respuesta;
     const esBodegaOWalmart = /bodegaaurrera|walmart/i.test(url.hostname);
+    const esCoppel = /coppel/i.test(url.hostname);
     const cabeceras = esBodegaOWalmart
       ? {
           "user-agent": "Mozilla/5.0 (Linux; Android 14; SM-S928B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Mobile Safari/537.36",
@@ -29,9 +30,16 @@ export async function descargarHtml(urlInicial) {
           "accept-language": "es-MX,es;q=0.9",
         }
       : {
-          "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
-          "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+          "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+          "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
           "accept-language": "es-MX,es;q=0.9,en-US;q=0.8,en;q=0.7",
+          "sec-ch-ua": '"Google Chrome";v="131", "Chromium";v="131", "Not_A Brand";v="24"',
+          "sec-ch-ua-mobile": "?0",
+          "sec-ch-ua-platform": '"Windows"',
+          "sec-fetch-dest": "document",
+          "sec-fetch-mode": "navigate",
+          "sec-fetch-site": "none",
+          "sec-fetch-user": "?1",
           "upgrade-insecure-requests": "1",
         };
 
@@ -100,17 +108,26 @@ export async function extraerProducto(urlOriginal, selectoresPersonalizados = nu
   } catch (errorDescarga) {
     // Si la tienda bloquea la IP del datacenter (Render/AWS) con 403/401 o reto anti-bot,
     // intentamos automáticamente con Playwright headless y perfiles de navegador reales
-    if (errorDescarga.message.includes("protección temporal") || errorDescarga.message.includes("403") || errorDescarga.message.includes("401")) {
+    if (
+      errorDescarga.message.includes("protección temporal") ||
+      errorDescarga.message.includes("403") ||
+      errorDescarga.message.includes("401") ||
+      errorDescarga.message.includes("bloqueo")
+    ) {
       try {
         const { renderizarConPlaywright } = await import("./servicioPlaywrightInspector.js");
         const resPw = await renderizarConPlaywright(urlOriginal, { timeoutMs: 25000 });
-        descargado = {
-          html: resPw.htmlRenderizado,
-          urlFinal: new URL(resPw.urlFinal),
-          codigoHttp: 200,
-        };
+        if (resPw?.htmlRenderizado) {
+          descargado = {
+            html: resPw.htmlRenderizado,
+            urlFinal: new URL(resPw.urlFinal || urlOriginal),
+            codigoHttp: 200,
+          };
+        } else {
+          throw errorDescarga;
+        }
       } catch (errorPw) {
-        throw errorDescarga;
+        throw new Error("La tienda tiene una protección estricta contra consultas en servidores en la nube. Puedes usar el botón de Inspección Visual para capturar los datos manualmente.");
       }
     } else {
       throw errorDescarga;
