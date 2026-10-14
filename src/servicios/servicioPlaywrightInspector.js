@@ -199,12 +199,18 @@ export function inyectarInspectorEnHtml(htmlOriginal, urlOriginal) {
   // pero el HTML se "pinta" idéntico a la tienda porque todo el CSS, layouts, imágenes y fuentes quedan intactos.
   html = html.replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, "");
 
-  // 2. Inyectar <base href="..."> en el <head> para resolver estilos e imágenes relativas
+  // 2. Eliminar etiquetas Content-Security-Policy que la tienda (como Walmart) incluye en el <meta>,
+  // las cuales bloquean la ejecución de nuestro script de inspección interactivo (__inspector_tienda_script__)
+  html = html.replace(/<meta[^>]*http-equiv=["']?content-security-policy["']?[^>]*>/gi, "");
+
+  // 3. Inyectar política permisiva y <base href="..."> en el <head>
   const tagBase = `<base href="${urlOriginal}">`;
+  const tagCspPermisivo = `<meta http-equiv="Content-Security-Policy" content="default-src * 'unsafe-inline' 'unsafe-eval' data: blob:; font-src * data: blob:; style-src * 'unsafe-inline'; script-src * 'unsafe-inline' 'unsafe-eval'; connect-src *;">`;
+  
   if (/<head[^>]*>/i.test(html)) {
-    html = html.replace(/<head[^>]*>/i, (coincidencia) => `${coincidencia}\n${tagBase}\n`);
+    html = html.replace(/<head[^>]*>/i, (coincidencia) => `${coincidencia}\n${tagCspPermisivo}\n${tagBase}\n`);
   } else {
-    html = `${tagBase}\n${html}`;
+    html = `${tagCspPermisivo}\n${tagBase}\n${html}`;
   }
 
   // 3. Inyectar únicamente nuestro script de inspector interactivo
@@ -226,8 +232,11 @@ export async function renderizarConPlaywright(urlObjetivo, { timeoutMs = 25000 }
   await validarDestino(urlValida);
 
   const navegador = await obtenerNavegador();
+  const esEneba = /eneba/i.test(urlValida.hostname);
   const contexto = await navegador.newContext({
-    userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
+    userAgent: esEneba
+      ? "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+      : "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
     viewport: { width: 1366, height: 768 },
     deviceScaleFactor: 1,
     locale: "es-MX",
@@ -236,7 +245,7 @@ export async function renderizarConPlaywright(urlObjetivo, { timeoutMs = 25000 }
     extraHTTPHeaders: {
       "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
       "accept-language": "es-MX,es;q=0.9,en-US;q=0.8,en;q=0.7",
-      "sec-ch-ua": '"Chromium";v="130", "Google Chrome";v="130", "Not?A_Brand";v="99"',
+      "sec-ch-ua": '"Google Chrome";v="131", "Chromium";v="131", "Not_A Brand";v="24"',
       "sec-ch-ua-mobile": "?0",
       "sec-ch-ua-platform": '"Windows"',
       "upgrade-insecure-requests": "1",
