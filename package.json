@@ -4,11 +4,12 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "build": "npx prisma generate && npx playwright install --with-deps chromium",
     "dev": "node --watch src/servidor.js",
     "start": "node src/servidor.js",
     "test": "node --test",
     "prisma:generate": "prisma generate",
-    "prisma:migrate": "prisma migrate dev --name inicial",
+    "prisma:migrate": "prisma migrate deploy",
     "respaldo": "node src/utilidades/respaldoBaseDatos.js"
   },
   "dependencies": {
